@@ -5,10 +5,10 @@ import sys
 import mechanize
 import os
 import re
-from pyunpack import Archive
 import pickle
 import urllib
 import argparse
+from pyunpack import Archive
 
 class FileFinder:
 	def __init__(self, dir, application = None ):
@@ -49,8 +49,8 @@ class File2Query:
 		delim = "[\.| |-|\(|\[|\{|\}|\]|\)]"
 		self.patterns = {
 			"(.+?)s([0-9][0-9])e([0-9][0-9])(.*?)$":("tv",4),
-			"(.+?)\.([0-9])([0-9][0-9])\.(.*?)$":("tv",4),
 			"(.+?)" + delim + "([1-2][0|9][0-9][0-9])"+ delim +"(.*?)$":("movie",3),
+			"(.+?)\.([0-9])([0-9][0-9])\.(.*?)$":("tv",4),
 		}
 
 	def parse(self, file):
@@ -78,6 +78,9 @@ class File2Query:
 					self.release = self.normalizeName(result.group(3))
 					self.valid = True
 
+			if self.valid:
+				break
+
 		if not self.valid:
 			parent = os.path.basename(os.path.dirname(file))
 			if len(parent) > 0:
@@ -91,21 +94,22 @@ class File2Query:
 		name = re.sub("[\.\-]", " ", name, 0 , re.I) # dots to spaces
 		name = re.sub("\s+", " ", name, 0 , re.I) # multi spaces to single spaces
 		name = re.sub("\[.*?\]", "", name, 0 , re.I) # remove comments in brackets. Ex: [rargb]
-		name = re.sub("(hddvd|dvd9|dualaudio|5 1ch|dvdrip|unrated|dd[2-7] 1|ac3|imax|edition|DTS|dxva|limited|brrip|xvid|480p|720p|1080p|web dl|x\ ?264|hdtv|aac2 0|bluray|h\ ?264|bdrip)", "", name, 0 , re.I) # remove common words that doesn't change the search query whatsoever
+		# remove common words that doesn't change the search query whatsoever
+		name = re.sub("(webrip|hddvd|dvd9|dualaudio|5 1ch|dvdrip|unrated|dd[2-7] 1|ac3|imax|edition|DTS|dxva|limited|brrip|xvid|480p|720p|1080p|web dl|x\ ?264|hdtv|aac2 0|bluray|h\ ?264|bdrip)", "", name, 0 , re.I)
 		name = re.sub("\s+", " ", name, 0 , re.I) # multi spaces to single spaces
 		name = name.strip()
 		return name
 
 	def dump(self):
 		print "-------------------------------------------------"
-		print "original: " + self.original
-		print "series:   " + str(self.series)
-		print "release:  " + str(self.release)
-		print "year:     " + str(self.year)
+		print "original:     " + self.original
+		print "series:       " + str(self.series)
+		print "release:      " + str(self.release)
+		print "year|episode: " + str(self.episode)
 
 	def compare(self, q):
-		a = re.sub("[^0-9a-z ]", " ", os.path.splitext(os.path.basename(self.original))[0], 0, re.I).lower()
-		b = re.sub("[^0-9a-z ]", " ", os.path.splitext(q.original)[0], 0, re.I).lower()
+		a = re.sub("[^0-9a-z ]", " ", os.path.splitext(os.path.basename(self.original))[0], 0, re.I).lower().strip()
+		b = re.sub("[^0-9a-z ]", " ", os.path.splitext(q.original)[0], 0, re.I).lower().strip()
 		return a == b
 
 
@@ -216,6 +220,7 @@ class SearchEngine:
 				if tmp_query.valid:
 					self.query = tmp_query
 					self.terms = terms
+					return True
 		return False
 
 	def search(self):
@@ -240,8 +245,6 @@ class SearchEngine:
 			if not self.quiet: print str(len(matches)) + " subtitles found. It can take a while to download it all."
 		elif len(matches) == 1:
 			if not self.quiet: print "Just one subtitle found"
-		else:
-			if not self.quiet: print "No subtitle found"
 
 		self.results = {}
 		self.exact = False
@@ -249,15 +252,6 @@ class SearchEngine:
 			match = File2Query()
 			match.as_file = False
 			match.parse(name)
-
-			# print "---------------"
-			# print name
-			# print match.series
-			# print match.episode
-			# print match.release
-			# print self.query.series
-			# print self.query.episode
-			# print self.query.release
 
 			if match.series == self.query.series:
 				url = "http://legendas.tv/downloadarquivo/" + urllib.quote(id)
@@ -283,12 +277,12 @@ class SearchEngine:
 class Application:
 	def __init__(self):
 		parser = argparse.ArgumentParser(description="Grab subtitles from http://legendas.tv/")
-		parser.add_argument('-d', '--dir', nargs=1,                    help="Set the directory to search media files.")
+		parser.add_argument('-d', '--dir', nargs=1,                    help="Set the directory to search media files")
 		parser.add_argument('-f', '--file', nargs=1,                   help="Set a file to search subtitles for")
 		parser.add_argument('-i', '--ignore', action="store_true",     help="If file found already has a subtitle, then ignore it")
 		parser.add_argument('-c', '--clear', action="store_true",      help="Clear program's cache file")
-		parser.add_argument('-a', '--automatic', action="store_true",  help="Don't ask questions. Just grab exact subtitles. ")
-		parser.add_argument('-q', '--quiet', action="store_true",      help="Quiet mode.")
+		parser.add_argument('-a', '--automatic', action="store_true",  help="Don't ask questions. Just grab exact subtitles")
+		parser.add_argument('-q', '--quiet', action="store_true",      help="Quiet mode")
 		self.args = parser.parse_args()
 		self.stop_bugging_me = False
 
@@ -328,7 +322,7 @@ class Application:
 									break
 								else:
 									print "I've found the exact subtitle you're looking for: " + self.s.results.keys()[0]
-									choice = self.question("Should I use it? (Y/n/a)", ("Y","n","a","") )
+									choice = self.question("Should I use it? (Y/n/a)", ("y","n","a","") )
 									if choice.lower() in ("y","a",""):
 										self.move(file, sorted(self.s.results.keys())[0])
 										if choice.lower() == "a":
@@ -338,19 +332,22 @@ class Application:
 									continue
 
 							else:
-								print "These are the subtitles I've found for " + file
+								print "These are the subtitles I've found for " + os.path.basename(file)
 								for index, key in enumerate(sorted(self.s.results.keys())):
 									print "% 2d" % (index+1) + ". " + key
 
 								answers = map(str,range(0,len(self.s.results.keys())+2))
-								choice = self.question("Choose the index for the subtitle you want and press return. Enter 0 to skip.", answers )
-								if int(choice) > 0:
+								answers.append("")
+								choice = self.question("Choose the index for the subtitle you want and press return. Press 0 to skip. Enter to retry.", answers )
+								if choice.isdigit() and int(choice) > 0:
 									print sorted(self.s.results.keys())[int(choice)-1]
 									self.move(file, sorted(self.s.results.keys())[int(choice)-1])
 									break
-								if int(choice) == 0:
+								if choice.isdigit() and int(choice) == 0:
 									break
-
+								if choice == "":
+									if self.s.setTerms(self):
+										continue
 
 				if not self.args.quiet: print "No subtitles found for this file."
 				if not self.args.quiet and not self.args.automatic:
@@ -381,28 +378,4 @@ def signal_handler(signal, frame):
 	sys.exit(0)
 
 signal.signal(signal.SIGINT, signal_handler)
-
 Application()
-
-
-# <div class="f_left"><p><a href="/download/fd25a972f7d17f1f1aaeb11d6022b83d/House_II_The_Second_Story/House_II">House.II</a></p>
-
-#s = SearchEngine()
-#if s.query("/home/fnemec/Dropbox/WIP/legendas/code/branches/1.0/House of Lies.S02E03-IMMERSE[rargb]-xvid.mkv"):
-#	for key in s.results.keys():
-#		print key
-
-#f = FileFinder("/home/fnemec/Dropbox/home_videos/")
-#File2Query( "/home/fnemec/Dropbox/WIP/legendas/code/branches/1.0/House of Lies.S02E03-IMMERSE[rargb]-xvid.mkv" )
-#File2Query( "/home/fnemec/Dropbox/WIP/legendas/code/branches/1.0/homeland.311.x264-kyr.mp4" ).dump()
-#File2Query( "/home/fnemec/Dropbox/WIP/legendas/code/branches/1.0/Thor.2011.1080p.BluRay.x264-SECTOR7.mkv" ).dump()
-
-
-# d = Downloader();
-# if d.get("http://legendas.tv/downloadarquivo/57afb192c3a8abc6964d4762068768ea"):
-# 	print "yesh"
-# else:
-# 	print "nope"
-# d.save()
-
-# Thor.2011.1080p.BluRay.x264-SECTOR7.mkv

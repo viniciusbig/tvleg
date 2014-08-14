@@ -1,0 +1,12 @@
+INSTALL
+
+This programa depends on python-mechanize, pyunpack and patool.
+
+For Ubuntu 14.04, those commands can get the job done.
+For other systems, RTFW and let me know if you find out so I can improve these install instructions. ;)
+
+ sudo apt-get install python-mechanize
+ sudo apt-get install python-pip
+ sudo pip install pyunpack
+ sudo apt-get install patool
+
