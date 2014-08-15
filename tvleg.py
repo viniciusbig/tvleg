@@ -67,10 +67,17 @@ class File2Query:
 				if type == "tv":
 					self.valid = True
 					self.series = re.sub("[^0-9a-z ]", "", self.normalizeName( result.group(1) ), 0, re.I).lower()
-					self.release = re.sub("[^0-9a-z ]", "", self.normalizeName( result.group(4) ), 0, re.I).lower()
+					self.release = result.group(4)
 					season = result.group(2).strip().lower()
 					chapter = result.group(3).strip().lower()
 					self.episode = "s" + "%02d" % int(season) + "e" + "%02d" % int(chapter)
+
+					result = re.match(".*[\.\-]([0-9a-z]+)", self.release, re.I )
+					if result:
+						self.release = result.group(1)
+
+					self.release = re.sub("[^0-9a-z ]", "", self.normalizeName( self.release ), 0, re.I).lower()
+
 
 				if type == "movie":
 					self.series = re.sub("[^0-9a-z ]", "", self.normalizeName( result.group(1) ), 0, re.I).lower()
@@ -379,3 +386,6 @@ def signal_handler(signal, frame):
 
 signal.signal(signal.SIGINT, signal_handler)
 Application()
+# a = File2Query()
+# a.parse("/media/chest/videos/tv/normal/The Simpsons/Season 25/The.Simpsons.S25E17.Lucas.720p.WEB-DL.x264.AAC.srt")
+# a.dump()
