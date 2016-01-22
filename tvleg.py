@@ -132,11 +132,15 @@ class Downloader:
 		# Cookie Jar
 		self.br.set_cookiejar(cookielib.LWPCookieJar())
 		self.tmp = "/tmp/extract"
-		self.config = "./data/config"
+		self.data = "./data/"
+		self.config = self.data + "config"
 		self.cache = {}
 
 		if not os.path.exists(self.tmp):
 			os.makedirs(self.tmp)
+
+		if not os.path.exists(self.data):
+			os.makedirs(self.data)
 
 		if os.path.exists(self.config):
 			self.cache = pickle.load(open(self.config, "rb"))
