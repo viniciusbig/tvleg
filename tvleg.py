@@ -184,7 +184,7 @@ class Downloader:
 			os.makedirs(self.tmp)
 
 		# Archive(file).extractall(self.tmp)
-		patoolib.extract_archive(file, outdir=self.tmp)
+		patoolib.extract_archive(file, outdir=self.tmp, verbosity=-1)
 
 		# run tmp folder getting all str files and then erase it
 		self.cache[url] = self.transverse(self.tmp)
