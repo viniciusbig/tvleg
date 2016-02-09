@@ -11,6 +11,7 @@ import urllib
 import argparse
 # from pyunpack import Archive
 import patoolib
+import json
 
 # Mechanize Tutorial
 # http://stockrt.github.io/p/emulating-a-browser-in-python-with-mechanize/
@@ -131,19 +132,32 @@ class Downloader:
 		self.br = mechanize.Browser()
 		# Cookie Jar
 		self.br.set_cookiejar(cookielib.LWPCookieJar())
-		self.tmp = "/tmp/extract"
-		self.data = "./data/"
-		self.config = self.data + "config"
+		self.tmpFolder = "/tmp/extract"
+		self.dataFolder = "./data/"
+		self.cacheFile = self.dataFolder + "cache"
 		self.cache = {}
+		self.configFile = self.dataFolder + "config.json"
+		self.config = {}
 
-		if not os.path.exists(self.tmp):
-			os.makedirs(self.tmp)
+		if not os.path.exists(self.tmpFolder):
+			os.makedirs(self.tmpFolder)
 
-		if not os.path.exists(self.data):
-			os.makedirs(self.data)
+		if not os.path.exists(self.dataFolder):
+			os.makedirs(self.dataFolder)
 
-		if os.path.exists(self.config):
-			self.cache = pickle.load(open(self.config, "rb"))
+		try:
+			with open(self.configFile) as data_file:
+				self.config = json.load(data_file)
+		except ValueError:
+			print "Error opening file {}. Please check json format".format(self.configFile)
+			exit(1)
+
+		if not self.login(self.config["username"], self.config["password"]):
+			print "Couldn't log on. Please, check your credentials and try again."
+			exit(1)
+
+		if os.path.exists(self.cacheFile):
+			self.cache = pickle.load(open(self.cacheFile, "rb"))
 
 	def login(self, username, password):
 		self.br.open("http://legendas.tv/")
@@ -180,14 +194,14 @@ class Downloader:
 
 
 		# Create the tmp path if not exists
-		if not os.path.exists(self.tmp):
-			os.makedirs(self.tmp)
+		if not os.path.exists(self.tmpFolder):
+			os.makedirs(self.tmpFolder)
 
-		# Archive(file).extractall(self.tmp)
-		patoolib.extract_archive(file, outdir=self.tmp, verbosity=-1)
+		# Archive(file).extractall(self.tmpFolder)
+		patoolib.extract_archive(file, outdir=self.tmpFolder, verbosity=-1)
 
 		# run tmp folder getting all str files and then erase it
-		self.cache[url] = self.transverse(self.tmp)
+		self.cache[url] = self.transverse(self.tmpFolder)
 		# save this cache in a cach file
 		self.save()
 		return True
@@ -209,10 +223,10 @@ class Downloader:
 
 	def clear(self):
 		print "Clearing cache file"
-		pickle.dump({}, open(self.config, "wb"))
+		pickle.dump({}, open(self.cacheFile, "wb"))
 
 	def save(self):
-		pickle.dump(self.cache, open(self.config, "wb"))
+		pickle.dump(self.cache, open(self.cacheFile, "wb"))
 
 class SearchEngine:
 	def __init__(self, d, file, application, **kwargs):
@@ -350,73 +364,65 @@ class Application:
 		if self.args.clear:
 			Downloader().clear()
 
-		if self.args.username is None or self.args.password is None:
-			print "You must set your username and password to log in legendas.tv"
-			exit(1)
-
 		d = Downloader()
 
-		if d.login(self.args.username[0], self.args.password[0]):
-			for file in files:
-				if not self.args.quiet: print "\nQuerying legendas.tv for " + os.path.basename(file)
+		for file in files:
+			if not self.args.quiet: print "\nQuerying legendas.tv for " + os.path.basename(file)
 
-				self.s = SearchEngine(d, file, self, quiet=self.args.quiet)
+			self.s = SearchEngine(d, file, self, quiet=self.args.quiet)
 
-				while self.s.terms is not None:
+			while self.s.terms is not None:
 
-					# Search the legend on Trakt.tv
+				# Search the legend on Trakt.tv
 
-					if self.s.search():
+				if self.s.search():
 
-						#
-						if self.args.quiet or self.args.automatic:
+					#
+					if self.args.quiet or self.args.automatic:
+						if self.s.exact:
+							self.move(file, sorted(self.s.results.keys())[0])
+							break
+					# If not quiet or automatic
+					else:
+						if len(self.s.results) > 0:
 							if self.s.exact:
-								self.move(file, sorted(self.s.results.keys())[0])
-								break
-						# If not quiet or automatic
-						else:
-							if len(self.s.results) > 0:
-								if self.s.exact:
-									if self.stop_bugging_me:
+								if self.stop_bugging_me:
+									self.move(file, sorted(self.s.results.keys())[0])
+									break
+								else:
+									print "I've found the exact subtitle you're looking for: " + self.s.results.keys()[0]
+									choice = self.question("Should I use it? (Y/n/a)", ("y","n","a","") )
+									if choice.lower() in ("y","a",""):
 										self.move(file, sorted(self.s.results.keys())[0])
+										if choice.lower() == "a":
+											self.stop_bugging_me = True
 										break
-									else:
-										print "I've found the exact subtitle you're looking for: " + self.s.results.keys()[0]
-										choice = self.question("Should I use it? (Y/n/a)", ("y","n","a","") )
-										if choice.lower() in ("y","a",""):
-											self.move(file, sorted(self.s.results.keys())[0])
-											if choice.lower() == "a":
-												self.stop_bugging_me = True
-											break
-										self.s.ignoreExactMatches = True
+									self.s.ignoreExactMatches = True
+									continue
+
+							else:
+								print "These are the subtitles I've found for " + os.path.basename(file)
+								for index, key in enumerate(sorted(self.s.results.keys())):
+									print "% 2d" % (index+1) + ". " + key
+
+								answers = map(str,range(0,len(self.s.results.keys())+2))
+								answers.append("")
+								choice = self.question("Choose the index for the subtitle you want and press return. Press 0 to skip. Enter to retry.", answers )
+								if choice.isdigit() and int(choice) > 0:
+									print sorted(self.s.results.keys())[int(choice)-1]
+									self.move(file, sorted(self.s.results.keys())[int(choice)-1])
+									break
+								if choice.isdigit() and int(choice) == 0:
+									break
+								if choice == "":
+									if self.s.setTerms(self):
 										continue
 
-								else:
-									print "These are the subtitles I've found for " + os.path.basename(file)
-									for index, key in enumerate(sorted(self.s.results.keys())):
-										print "% 2d" % (index+1) + ". " + key
-
-									answers = map(str,range(0,len(self.s.results.keys())+2))
-									answers.append("")
-									choice = self.question("Choose the index for the subtitle you want and press return. Press 0 to skip. Enter to retry.", answers )
-									if choice.isdigit() and int(choice) > 0:
-										print sorted(self.s.results.keys())[int(choice)-1]
-										self.move(file, sorted(self.s.results.keys())[int(choice)-1])
-										break
-									if choice.isdigit() and int(choice) == 0:
-										break
-									if choice == "":
-										if self.s.setTerms(self):
-											continue
-
-					if not self.args.quiet: print "No subtitles found for this file."
-					if not self.args.quiet and not self.args.automatic:
-						if self.s.setTerms(self):
-							continue
-					break
-		else:
-			if not self.args.quiet: print "Couldn't log on. Please, check your credentials and try again."
-			exit(1)
+				if not self.args.quiet: print "No subtitles found for this file."
+				if not self.args.quiet and not self.args.automatic:
+					if self.s.setTerms(self):
+						continue
+				break
 		exit(0)
 
 	def question(self, text, answers):
