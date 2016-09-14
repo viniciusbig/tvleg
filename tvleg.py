@@ -160,7 +160,13 @@ class Downloader:
 			self.cache = pickle.load(open(self.cacheFile, "rb"))
 
 	def login(self, username, password):
-		self.br.open("http://legendas.tv/")
+		print "Abrindo login"
+
+		try:
+			self.br.open("http://legendas.tv/")
+		except:
+			print self.br
+			print "erro"
 
 		# select the first form on the page
 		self.br.form = list(self.br.forms())[0]
