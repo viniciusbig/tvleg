@@ -126,7 +126,7 @@ class File2Query:
 		return a == b
 
 class Downloader:
-	def __init__(self):
+	def __init__(self, application = None):
 		self.urls = []
 		# Browser
 		self.br = mechanize.Browser()
@@ -134,6 +134,7 @@ class Downloader:
 		self.br.set_cookiejar(cookielib.LWPCookieJar())
 		self.tmpFolder = "/tmp/extract"
 		self.dataFolder = "./data/"
+
 		self.cacheFile = self.dataFolder + "cache"
 		self.cache = {}
 		self.configFile = self.dataFolder + "config.json"
@@ -145,6 +146,8 @@ class Downloader:
 		if not os.path.exists(self.dataFolder):
 			os.makedirs(self.dataFolder)
 
+		# The config file is pure JSON to make users life easier
+		# It could be pickle but this library has a different syntax
 		try:
 			with open(self.configFile) as data_file:
 				self.config = json.load(data_file)
@@ -152,15 +155,17 @@ class Downloader:
 			print "Error opening file {}. Please check json format".format(self.configFile)
 			exit(1)
 
-		if not self.login(self.config["username"], self.config["password"]):
-			print "Couldn't log on. Please, check your credentials and try again."
+		if not self.login(self.config["username"], self.config["password"], application):
+			print "Couldn't log in. Please, check your credentials and try again"
 			exit(1)
+
+		if not application.args.quiet: print "Logged"
 
 		if os.path.exists(self.cacheFile):
 			self.cache = pickle.load(open(self.cacheFile, "rb"))
 
-	def login(self, username, password):
-		print "Abrindo login"
+	def login(self, username, password, application):
+		if not application.args.quiet: print "Logging in"
 
 		try:
 			self.br.open("http://legendas.tv/")
@@ -368,9 +373,9 @@ class Application:
 			files.append(self.args.file[0])
 
 		if self.args.clear:
-			Downloader().clear()
+			Downloader(self).clear()
 
-		d = Downloader()
+		d = Downloader(self)
 
 		for file in files:
 			if not self.args.quiet: print "\nQuerying legendas.tv for " + os.path.basename(file)
