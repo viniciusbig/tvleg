@@ -9,10 +9,16 @@ import re
 import pickle
 import urllib
 import argparse
-from pyunpack import Archive
+# from pyunpack import Archive
+import patoolib
+import json
+
+# Mechanize Tutorial
+# http://stockrt.github.io/p/emulating-a-browser-in-python-with-mechanize/
+# http://wwwsearch.sourceforge.net/mechanize/
 
 class FileFinder:
-	def __init__(self, dir, application = None ):
+	def __init__(self, dir, application = None):
 		self.extensions = ("avi","mkv","mp4")
 
 		if not os.path.exists(dir):
@@ -31,11 +37,10 @@ class FileFinder:
 				if file.endswith(self.extensions):
 					f = os.path.join(root , file)
 					( base , ext ) = os.path.splitext(f)
-					if application.args.ignore and os.path.exists(base+".srt"):
+					if application.args.ignore and os.path.exists(base + ".srt"):
 						if not application.args.quiet: print "Ignoring " + f + ". Subtitle found."
 						continue
 					self.files.append(f)
-
 
 class File2Query:
 	def __init__(self):
@@ -55,33 +60,34 @@ class File2Query:
 		}
 
 	def parse(self, file):
+
 		self.original = file
+
 		for pattern in self.patterns.keys():
 			type, fields = self.patterns[pattern]
 
 			if self.as_file:
-				result = re.match( pattern, os.path.splitext(os.path.basename(file))[0], re.I )
+				result = re.match(pattern, os.path.splitext(os.path.basename(file))[0], re.I)
 			else:
-				result = re.match( pattern, file, re.I )
+				result = re.match(pattern, file, re.I)
 
 			if result and result.lastindex == fields:
 				if type == "tv":
 					self.valid = True
-					self.series = re.sub("[^0-9a-z ]", "", self.normalizeName( result.group(1) ), 0, re.I).lower()
+					self.series = re.sub("[^0-9a-z ]", "", self.normalizeName(result.group(1)), 0, re.I).lower()
 					self.release = result.group(4)
 					season = result.group(2).strip().lower()
 					chapter = result.group(3).strip().lower()
 					self.episode = "s" + "%02d" % int(season) + "e" + "%02d" % int(chapter)
 
-					result = re.match(".*[\.\-]([0-9a-z]+)", self.release, re.I )
+					result = re.match(".*[\.\-]([0-9a-z]+)", self.release, re.I)
 					if result:
 						self.release = result.group(1)
 
-					self.release = re.sub("[^0-9a-z ]", "", self.normalizeName( self.release ), 0, re.I).lower()
-
+					self.release = re.sub("[^0-9a-z ]", "", self.normalizeName(self.release), 0, re.I).lower()
 
 				if type == "movie":
-					self.series = re.sub("[^0-9a-z ]", "", self.normalizeName( result.group(1) ), 0, re.I).lower()
+					self.series = re.sub("[^0-9a-z ]", "", self.normalizeName(result.group(1)), 0, re.I).lower()
 					self.episode = result.group(2)
 					self.release = self.normalizeName(result.group(3))
 					self.valid = True
@@ -97,14 +103,13 @@ class File2Query:
 				self.as_file = True
 				self.original = file
 
-
 	def normalizeName(self, name):
-		name = re.sub("[\.\-]", " ", name, 0 , re.I) # dots to spaces
-		name = re.sub("\s+", " ", name, 0 , re.I) # multi spaces to single spaces
-		name = re.sub("\[.*?\]", "", name, 0 , re.I) # remove comments in brackets. Ex: [rargb]
+		name = re.sub("[\.\-]", " ", name, 0 , re.I)	# dots to spaces
+		name = re.sub("\s+", " ", name, 0 , re.I)		# multi spaces to single spaces
+		name = re.sub("\[.*?\]", "", name, 0 , re.I)	# remove comments in brackets. Ex: [rargb]
 		# remove common words that doesn't change the search query whatsoever
 		name = re.sub("(webrip|hddvd|dvd9|dualaudio|5 1ch|dvdrip|unrated|dd[2-7] 1|ac3|imax|edition|DTS|dxva|limited|brrip|xvid|480p|720p|1080p|web dl|x\ ?264|hdtv|aac2 0|bluray|h\ ?264|bdrip)", "", name, 0 , re.I)
-		name = re.sub("\s+", " ", name, 0 , re.I) # multi spaces to single spaces
+		name = re.sub("\s+", " ", name, 0 , re.I) 		# multi spaces to single spaces
 		name = name.strip()
 		return name
 
@@ -120,51 +125,96 @@ class File2Query:
 		b = re.sub("[^0-9a-z ]", " ", os.path.splitext(q.original)[0], 0, re.I).lower().strip()
 		return a == b
 
-
 class Downloader:
-	def __init__(self):
+	def __init__(self, application = None):
 		self.urls = []
+		# Browser
 		self.br = mechanize.Browser()
-		self.tmp = "/tmp/extract"
-		self.config = "./data/config"
-		self.cache = {}
+		# Cookie Jar
 		self.br.set_cookiejar(cookielib.LWPCookieJar())
+		self.tmpFolder = "/tmp/extract"
+		# self.dataFolder = "./data/"
+		self.dataFolder = os.path.dirname(os.path.realpath(__file__)) + "/data/"
 
-		if not os.path.exists(self.tmp):
-			os.makedirs(self.tmp)
+		self.cacheFile = self.dataFolder + "cache"
+		self.cache = {}
+		self.configFile = self.dataFolder + "config.json"
+		self.config = {}
 
-		if os.path.exists(self.config):
-			self.cache = pickle.load( open( self.config, "rb" ) )
+		if not os.path.exists(self.tmpFolder):
+			os.makedirs(self.tmpFolder)
 
-	def login(self, username, password ):
-		self.br.open( "http://legendas.tv/")
+		if not os.path.exists(self.dataFolder):
+			os.makedirs(self.dataFolder)
+
+		# The config file is pure JSON to make users life easier
+		# It could be pickle but this library has a different syntax
+		try:
+			with open(self.configFile) as data_file:
+				self.config = json.load(data_file)
+		except ValueError:
+			print "Error opening file {}. Please check json format".format(self.configFile)
+			exit(1)
+
+		if not self.login(self.config["username"], self.config["password"], application):
+			print "Couldn't log in. Please, check your credentials and try again"
+			exit(1)
+
+		if not application.args.quiet: print "Logged"
+
+		if os.path.exists(self.cacheFile):
+			self.cache = pickle.load(open(self.cacheFile, "rb"))
+
+	def login(self, username, password, application):
+		if not application.args.quiet: print "Logging in"
+
+		try:
+			self.br.open("http://legendas.tv/")
+		except:
+			print self.br
+			print "erro"
+
+		# select the first form on the page
 		self.br.form = list(self.br.forms())[0]
 		self.br["data[User][username]"] = username
 		self.br["data[User][password]"] = password
 
-		pattern = 'meuperfil'
-		matches = re.findall( pattern, self.br.submit().read(), re.I + re.MULTILINE )
+		response = self.br.submit()		# Submit the login form
+		pageHTML = response.read()
+
+		# patternOld = 'meuperfil'
+		# patternError = "rio ou senha inv"
+		pattern = 'SAIR'
+		matches = re.findall(pattern, pageHTML, re.I + re.MULTILINE)
+
 		return len(matches) > 1
 
-
 	def get(self, url, retry = 3):
+
 		if url in self.cache.keys():
 			return True
 
+		# Try to download the file [retry] times
 		while True:
 			try:
-				file = self.br.retrieve( url )[0]
+				file = self.br.retrieve(url)[0]
 				break
 			except:
 				if retry > 1:
 					return self.get(url, retry - 1)
 				return False
 
-		if not os.path.exists(self.tmp):
-			os.makedirs(self.tmp)
 
-		Archive(file).extractall(self.tmp)
-		self.cache[url] = self.transverse(self.tmp)
+		# Create the tmp path if not exists
+		if not os.path.exists(self.tmpFolder):
+			os.makedirs(self.tmpFolder)
+
+		# Archive(file).extractall(self.tmpFolder)
+		patoolib.extract_archive(file, outdir=self.tmpFolder, verbosity=-1)
+
+		# run tmp folder getting all str files and then erase it
+		self.cache[url] = self.transverse(self.tmpFolder)
+		# save this cache in a cach file
 		self.save()
 		return True
 
@@ -185,11 +235,10 @@ class Downloader:
 
 	def clear(self):
 		print "Clearing cache file"
-		pickle.dump( {}, open( self.config, "wb" ) )
+		pickle.dump({}, open(self.cacheFile, "wb"))
 
 	def save(self):
-		pickle.dump( self.cache, open( self.config, "wb" ) )
-
+		pickle.dump(self.cache, open(self.cacheFile, "wb"))
 
 class SearchEngine:
 	def __init__(self, d, file, application, **kwargs):
@@ -212,15 +261,14 @@ class SearchEngine:
 			self.query.parse(file)
 			if not self.query.valid:
 				if not self.quiet:
-					print "Couldn't parse metadata from filename. "
-					self.setTerms( application )
+					print "Couldn't parse metadata from filename."
+					self.setTerms(application)
 			else:
 				self.terms = self.query.series + ' ' + self.query.episode + ' ' + self.query.release
 
-
 	def setTerms(self, application):
 		if not self.quiet:
-			terms = raw_input("Enter new search param to retry or enter to skip: " )
+			terms = raw_input("Enter new search param to retry or enter to skip: ")
 			if terms != "":
 				tmp_query = File2Query()
 				tmp_query.as_file = False
@@ -249,7 +297,7 @@ class SearchEngine:
 		url =  "http://legendas.tv/legenda/busca/" + urllib.quote(self.terms) + "/" + self.lang + "/" + self.mediaType
 		while True:
 			try:
-				self.d.br.open( url )
+				self.d.br.open(url)
 				break
 			except:
 				if self.retry > 1:
@@ -258,7 +306,7 @@ class SearchEngine:
 				return False
 
 		pattern = '<p><a href="/download/(.+?)/.+?/.+?">(.+?)</a>'
-		matches = re.findall( pattern, self.d.br.response().read(), re.I + re.MULTILINE )
+		matches = re.findall(pattern, self.d.br.response().read(), re.I + re.MULTILINE)
 
 		if len(matches) > 1:
 			if not self.quiet: print str(len(matches)) + " subtitles found. It can take a while to download it all."
@@ -268,6 +316,7 @@ class SearchEngine:
 		self.results = {}
 		self.exact = False
 		for id , name in matches:
+
 			match = File2Query()
 			match.as_file = False
 			match.parse(name)
@@ -275,13 +324,15 @@ class SearchEngine:
 			if match.series == self.query.series:
 				url = "http://legendas.tv/downloadarquivo/" + urllib.quote(id)
 				if not self.quiet: print "Retrieving URL " + url
+
 				if self.d.get(url):
+
 					for key in self.d.cache[url].keys():
 						match.parse(key)
 
 						if self.ignoreExactMatches == False and self.query.compare(match):
 							self.exact = True
-							self.results = {key: self.d.cache[url][key] }
+							self.results = {key: self.d.cache[url][key]}
 							return True
 
 						if match.valid and self.query.valid:
@@ -291,7 +342,6 @@ class SearchEngine:
 				else:
 					if not self.quiet: print "Faile to retrieve URL " + url
 		return True
-
 
 class Application:
 	def __init__(self):
@@ -308,9 +358,10 @@ class Application:
 		self.stop_bugging_me = False
 
 		files = []
+
 		if self.args.dir:
 			if not self.args.quiet: print "Searching for media files in " + self.args.dir[0]
-			f = FileFinder(self.args.dir[0], self )
+			f = FileFinder(self.args.dir[0], self)
 			files = f.files
 			if len(files) > 1:
 				if not self.args.quiet: print str(len(files)) + " files found"
@@ -323,71 +374,70 @@ class Application:
 			files.append(self.args.file[0])
 
 		if self.args.clear:
-			Downloader().clear()
+			Downloader(self).clear()
 
-		if self.args.username is None or self.args.password is None:
-			print "You must set your username and password to log in legendas.tv"
-			exit(1)
+		d = Downloader(self)
 
-		d = Downloader()
+		for file in files:
+			if not self.args.quiet: print "\nQuerying legendas.tv for " + os.path.basename(file)
 
-		if d.login( self.args.username[0], self.args.password[0] ):
-			for file in files:
-				if not self.args.quiet: print "\nQuerying legendas.tv for " + os.path.basename(file)
-				self.s = SearchEngine( d, file, self, quiet=self.args.quiet )
+			self.s = SearchEngine(d, file, self, quiet=self.args.quiet)
 
-				while self.s.terms is not None:
-					if self.s.search():
-						if self.args.quiet or self.args.automatic:
+			while self.s.terms is not None:
+
+				# Search the legend on Trakt.tv
+
+				if self.s.search():
+
+					#
+					if self.args.quiet or self.args.automatic:
+						if self.s.exact:
+							self.move(file, sorted(self.s.results.keys())[0])
+							break
+					# If not quiet or automatic
+					else:
+						if len(self.s.results) > 0:
 							if self.s.exact:
-								self.move(file, sorted(self.s.results.keys())[0])
-								break
-						else:
-							if len(self.s.results) > 0:
-								if self.s.exact:
-									if self.stop_bugging_me:
+								if self.stop_bugging_me:
+									self.move(file, sorted(self.s.results.keys())[0])
+									break
+								else:
+									print "I've found the exact subtitle you're looking for: " + self.s.results.keys()[0]
+									choice = self.question("Should I use it? (Y/n/a)", ("y","n","a","") )
+									if choice.lower() in ("y","a",""):
 										self.move(file, sorted(self.s.results.keys())[0])
+										if choice.lower() == "a":
+											self.stop_bugging_me = True
 										break
-									else:
-										print "I've found the exact subtitle you're looking for: " + self.s.results.keys()[0]
-										choice = self.question("Should I use it? (Y/n/a)", ("y","n","a","") )
-										if choice.lower() in ("y","a",""):
-											self.move(file, sorted(self.s.results.keys())[0])
-											if choice.lower() == "a":
-												self.stop_bugging_me = True
-											break
-										self.s.ignoreExactMatches = True
+									self.s.ignoreExactMatches = True
+									continue
+
+							else:
+								print "These are the subtitles I've found for " + os.path.basename(file)
+								for index, key in enumerate(sorted(self.s.results.keys())):
+									print "% 2d" % (index+1) + ". " + key
+
+								answers = map(str,range(0,len(self.s.results.keys())+2))
+								answers.append("")
+								choice = self.question("Choose the index for the subtitle you want and press return. Press 0 to skip. Enter to retry.", answers )
+								if choice.isdigit() and int(choice) > 0:
+									print sorted(self.s.results.keys())[int(choice)-1]
+									self.move(file, sorted(self.s.results.keys())[int(choice)-1])
+									break
+								if choice.isdigit() and int(choice) == 0:
+									break
+								if choice == "":
+									if self.s.setTerms(self):
 										continue
 
-								else:
-									print "These are the subtitles I've found for " + os.path.basename(file)
-									for index, key in enumerate(sorted(self.s.results.keys())):
-										print "% 2d" % (index+1) + ". " + key
-
-									answers = map(str,range(0,len(self.s.results.keys())+2))
-									answers.append("")
-									choice = self.question("Choose the index for the subtitle you want and press return. Press 0 to skip. Enter to retry.", answers )
-									if choice.isdigit() and int(choice) > 0:
-										print sorted(self.s.results.keys())[int(choice)-1]
-										self.move(file, sorted(self.s.results.keys())[int(choice)-1])
-										break
-									if choice.isdigit() and int(choice) == 0:
-										break
-									if choice == "":
-										if self.s.setTerms(self):
-											continue
-
-					if not self.args.quiet: print "No subtitles found for this file."
-					if not self.args.quiet and not self.args.automatic:
-						if self.s.setTerms(self):
-							continue
-					break
-		else:
-			if not self.args.quiet: print "Couldn't log on. Please, check your credentials and try again."
-			exit(1)
+				if not self.args.quiet: print "No subtitles found for this file."
+				if not self.args.quiet and not self.args.automatic:
+					if self.s.setTerms(self):
+						continue
+				break
 		exit(0)
 
-	def question( self, text, answers ):
+	def question(self, text, answers):
 		while True:
 			choice = raw_input(text + " (press x to quit) ")
 			if choice == "x" or choice == "X":
@@ -397,14 +447,13 @@ class Application:
 				if choice == answer:
 					return choice
 
-	def move( self, file, key ):
+	def move(self, file, key):
 		subtitle = os.path.splitext(file)[0] + ".srt"
 		if not self.args.quiet: print "Writing subtitle: " + subtitle
 
 		content = self.s.results[key]
-		with open(subtitle,'w') as f:
+		with open(subtitle, 'w') as f:
 			f.write(content)
-
 
 def signal_handler(signal, frame):
 	sys.exit(0)
