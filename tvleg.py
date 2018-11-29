@@ -133,7 +133,6 @@ class Downloader:
 		# Cookie Jar
 		self.br.set_cookiejar(cookielib.LWPCookieJar())
 		self.tmpFolder = "/tmp/extract"
-		# self.dataFolder = "./data/"
 		self.dataFolder = os.path.dirname(os.path.realpath(__file__)) + "/data/"
 
 		self.cacheFile = self.dataFolder + "cache"
