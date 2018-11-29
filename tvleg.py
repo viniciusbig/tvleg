@@ -130,9 +130,30 @@ class Downloader:
 		self.urls = []
 		# Browser
 		self.br = mechanize.Browser()
+
 		# Cookie Jar
 		self.br.set_cookiejar(cookielib.LWPCookieJar())
+
+		# User-Agent (this is cheating, ok?)
+		self.br.addheaders = [('User-agent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.102 Safari/537.36')]
+
+		# Browser options
+		self.br.set_handle_equiv(True)
+		self.br.set_handle_gzip(True)
+		self.br.set_handle_redirect(True)
+		self.br.set_handle_referer(True)
+		self.br.set_handle_robots(False)
+
+		# Follows refresh 0 but not hangs on refresh > 0
+		self.br.set_handle_refresh(mechanize._http.HTTPRefreshProcessor(), max_time=1)
+
+		# Want debugging messages?
+		# self.br.set_debug_http(True)
+		# self.br.set_debug_redirects(True)
+		# self.br.set_debug_responses(True)
+
 		self.tmpFolder = "/tmp/extract"
+		# self.dataFolder = os.path.dirname(os.path.realpath(__file__)) + "/data/"
 		self.dataFolder = os.path.dirname(os.path.realpath(__file__)) + "/data/"
 
 		self.cacheFile = self.dataFolder + "cache"
@@ -339,7 +360,7 @@ class SearchEngine:
 								if match.episode == self.query.episode:
 									self.results[key] = self.d.cache[url][key]
 				else:
-					if not self.quiet: print "Faile to retrieve URL " + url
+					if not self.quiet: print "Failed to retrieve URL " + url
 		return True
 
 class Application:
